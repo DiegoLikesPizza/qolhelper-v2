@@ -1,0 +1,22 @@
+{
+  "name": "qolhelper",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Discord bot mirroring Better QOLHub listings and reviews into Discord.",
+  "scripts": {
+    "dev": "node --watch --experimental-strip-types src/index.ts",
+    "start": "node --experimental-strip-types src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=22.6.0"
+  }
+}

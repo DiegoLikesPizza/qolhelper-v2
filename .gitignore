@@ -1,0 +1,12 @@
+node_modules/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# The bot's local mapping database
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
