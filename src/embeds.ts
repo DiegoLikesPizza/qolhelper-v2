@@ -1,6 +1,6 @@
 import { EmbedBuilder } from 'discord.js';
 import { CATEGORY_META, config, isCategoryKey } from './config.ts';
-import type { ListingPayload, ReviewPayload } from './types.ts';
+import type { AnnouncementPayload, ListingPayload, ReviewPayload } from './types.ts';
 
 const MAX_RATING = 5;
 
@@ -89,6 +89,23 @@ export function reviewEmbed(review: ReviewPayload): EmbedBuilder {
     .setDescription(review.body)
     .setColor(color)
     .setFooter({ text: `Reviewed by ${review.username}` })
+    .setTimestamp(new Date());
+}
+
+/**
+ * A developer's announcement, posted into their listing's own forum thread.
+ *
+ * Violet rather than the rating colours: this is the vendor speaking about their
+ * own product, and it must not be mistakable for the community's verdict. Same
+ * reason the site keeps announcements in a separate block from reviews.
+ */
+export function announcementEmbed(announcement: AnnouncementPayload): EmbedBuilder {
+  return new EmbedBuilder()
+    .setTitle(`Announcement — ${announcement.listingName}`)
+    .setURL(announcement.url)
+    .setDescription(announcement.body)
+    .setColor(0x6b46b8)
+    .setFooter({ text: `Posted by ${announcement.author}` })
     .setTimestamp(new Date());
 }
 

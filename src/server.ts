@@ -9,9 +9,10 @@ import {
   removeReview,
   sendPasswordReset,
   sendVerificationCode,
+  publishAnnouncement,
   updateListing,
 } from './discord.ts';
-import { isListingPayload, isReviewPayload } from './types.ts';
+import { isAnnouncementPayload, isListingPayload, isReviewPayload } from './types.ts';
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -113,6 +114,19 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (action !== 'created') return json(res, 400, { error: 'Unknown action' });
 
     await publishReview(review);
+    return json(res, 200, { ok: true });
+  }
+
+  if (url.pathname === '/events/announcement') {
+    const announcement = (body ?? {}) as Record<string, unknown>;
+    if (!isAnnouncementPayload(announcement)) {
+      return json(res, 400, { error: 'announcement payload required' });
+    }
+
+    await publishAnnouncement(announcement);
+    // Always 200: the announcement is already saved on the site, and the mirror
+    // failing is not a reason for the site to report an error to the developer
+    // who just posted it. publishAnnouncement logs whatever went wrong.
     return json(res, 200, { ok: true });
   }
 

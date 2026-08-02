@@ -8,7 +8,13 @@ import {
   type GuildMember,
 } from 'discord.js';
 import { config, isCategoryKey } from './config.ts';
-import { listingEmbed, passwordResetDm, reviewEmbed, verificationDm } from './embeds.ts';
+import {
+  announcementEmbed,
+  listingEmbed,
+  passwordResetDm,
+  reviewEmbed,
+  verificationDm,
+} from './embeds.ts';
 import {
   deleteListingPost,
   deleteReviewPost,
@@ -18,7 +24,7 @@ import {
   saveListingPost,
   saveReviewPost,
 } from './store.ts';
-import type { ListingPayload, ReviewPayload } from './types.ts';
+import type { AnnouncementPayload, ListingPayload, ReviewPayload } from './types.ts';
 
 // GuildMembers is a *privileged* intent and must be enabled in the Developer
 // Portal. Without it, looking a member up by username silently finds nobody,
@@ -294,6 +300,50 @@ export async function sendPasswordReset(
   return { ok: true };
 }
 
+/**
+ * Posts a developer's announcement into their listing's own forum thread.
+ *
+ * This is the whole notification mechanism, and deliberately so. Members who
+ * follow that thread already get a Discord notification for anything posted in
+ * it — no opt-in flag to store, no per-user delivery to track, and none of the
+ * "DMs from server members are off" wall that the linking flow keeps running
+ * into. The site's own notification centre stays the durable record; this is the
+ * push on top of it.
+ *
+ * A listing with no forum post yet (never published, or the post was deleted in
+ * Discord) is skipped rather than treated as an error: the announcement itself
+ * has already been saved on the site, and failing here must not undo that.
+ */
+export async function publishAnnouncement(announcement: AnnouncementPayload): Promise<void> {
+  const post = getListingPost(announcement.listingId);
+  if (!post) {
+    console.warn(
+      `[qolhelper] announcement ${announcement.id}: listing ${announcement.listingId} has no forum post, skipping`
+    );
+    return;
+  }
+
+  try {
+    const thread = await client.channels.fetch(post.threadId);
+    if (!thread || !thread.isThread()) {
+      console.warn(
+        `[qolhelper] announcement ${announcement.id}: thread ${post.threadId} is gone, skipping`
+      );
+      return;
+    }
+
+    // Unarchive first: forum threads go stale on their own, and posting to an
+    // archived one silently reaches nobody.
+    if (thread.archived) await thread.setArchived(false);
+
+    await thread.send({ embeds: [announcementEmbed(announcement)] });
+  } catch (error) {
+    console.error(
+      `[qolhelper] announcement ${announcement.id} failed: ${describeError(error)}`
+    );
+  }
+}
+
 export type LinkResult =
   | { ok: true; discordId: string; discordTag: string }
   | { ok: false; reason: 'not_found' | 'ambiguous' | 'dms_closed' | 'failed'; message: string };
@@ -327,13 +377,31 @@ export async function sendVerificationCode(
 
   let matches: GuildMember[] = [];
   // Kept for the log line: knowing what the search *did* return is what
-  // separates "not in the server" from "typed their display name".
+  // separates "not in the server" from "typed something other than the handle".
   let candidates: string[] = [];
   try {
     const guild = await client.guilds.fetch(config.guildId);
     const found = await guild.members.fetch({ query: wanted, limit: 10 });
     candidates = [...found.values()].map((m) => m.user.username);
-    matches = [...found.values()].filter((m) => m.user.username.toLowerCase() === wanted);
+
+    // Matched on the handle first, and only on display names if that finds
+    // nobody. Almost everyone types the name they *see* — their own display
+    // name or server nickname — rather than the @handle, and telling them to
+    // join a server they are already in was the single most common way this
+    // flow dead-ended. Handles stay authoritative because they are the unique
+    // one; the looser passes only ever run when the strict one came up empty.
+    const byHandle = (m: GuildMember) => m.user.username.toLowerCase() === wanted;
+    const byDisplay = (m: GuildMember) =>
+      m.user.globalName?.toLowerCase() === wanted || m.displayName.toLowerCase() === wanted;
+    const byNickname = (m: GuildMember) => m.nickname?.toLowerCase() === wanted;
+
+    const members = [...found.values()];
+    matches =
+      members.filter(byHandle).length > 0
+        ? members.filter(byHandle)
+        : members.filter(byDisplay).length > 0
+          ? members.filter(byDisplay)
+          : members.filter(byNickname);
   } catch (error) {
     return fail(
       {
@@ -350,14 +418,17 @@ export async function sendVerificationCode(
       {
         ok: false,
         reason: 'not_found',
+        // Names the likely cause rather than asserting the least likely one.
+        // The old copy said "join the server first", which is wrong advice for
+        // everyone who is already in it and simply typed the wrong name.
         message:
-          'No member with that username is in the Discord server. Join the server first, then try again.',
+          'Could not find that account in the Discord server. Check you entered your Discord username — the @handle, not your display name — and that you have joined the server.',
       },
       // A non-empty candidate list here means Discord *did* find someone — the
       // query matched a display name or nickname, but the handle differs. That
       // is a different problem from not being in the server at all.
       candidates.length
-        ? `search returned ${candidates.length} near-miss(es): ${candidates.join(', ')} — handle mismatch, not absence`
+        ? `search returned ${candidates.length} near-miss(es): ${candidates.join(', ')} — no handle, display name or nickname matched`
         : 'search returned nothing'
     );
   }
@@ -366,7 +437,8 @@ export async function sendVerificationCode(
       {
         ok: false,
         reason: 'ambiguous',
-        message: 'More than one member matches that username. Contact an admin to link manually.',
+        message:
+          'More than one member matches that name. Enter your exact @handle, or contact an admin to link manually.',
       },
       `${matches.length} exact handle matches: ${matches.map((m) => m.id).join(', ')}`
     );

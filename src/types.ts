@@ -28,6 +28,17 @@ export type ReviewPayload = {
   listingName: string;
 };
 
+export type AnnouncementPayload = {
+  id: string;
+  listingId: string;
+  listingName: string;
+  body: string;
+  /** Site username of the team member who published it. */
+  author: string;
+  /** Absolute URL of the listing page, so readers can get back to it. */
+  url: string;
+};
+
 export type ListingEvent = {
   action: 'created' | 'updated' | 'deleted';
   listing: ListingPayload;
@@ -43,6 +54,17 @@ export type LinkRequest = {
   code: string;
   siteUsername: string;
 };
+
+export function isAnnouncementPayload(value: unknown): value is AnnouncementPayload {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.id === 'string' &&
+    typeof v.listingId === 'string' &&
+    typeof v.body === 'string' &&
+    typeof v.author === 'string'
+  );
+}
 
 export function isListingPayload(value: unknown): value is ListingPayload {
   if (typeof value !== 'object' || value === null) return false;
