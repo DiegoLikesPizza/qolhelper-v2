@@ -10,9 +10,15 @@ import {
   sendPasswordReset,
   sendVerificationCode,
   publishAnnouncement,
+  dmChangeRequest,
   updateListing,
 } from './discord.ts';
-import { isAnnouncementPayload, isListingPayload, isReviewPayload } from './types.ts';
+import {
+  isAnnouncementPayload,
+  isChangeRequestPayload,
+  isListingPayload,
+  isReviewPayload,
+} from './types.ts';
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -127,6 +133,18 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     // Always 200: the announcement is already saved on the site, and the mirror
     // failing is not a reason for the site to report an error to the developer
     // who just posted it. publishAnnouncement logs whatever went wrong.
+    return json(res, 200, { ok: true });
+  }
+
+  if (url.pathname === '/events/change-request') {
+    const request = (body ?? {}) as Record<string, unknown>;
+    if (!isChangeRequestPayload(request)) {
+      return json(res, 400, { error: 'change request payload required' });
+    }
+
+    await dmChangeRequest(request);
+    // Always 200, same reasoning as announcements: the proposal is already in
+    // the queue, and a DM that did not land is not the site's problem to report.
     return json(res, 200, { ok: true });
   }
 

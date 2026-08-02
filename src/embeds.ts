@@ -1,6 +1,11 @@
 import { EmbedBuilder } from 'discord.js';
 import { CATEGORY_META, config, isCategoryKey } from './config.ts';
-import type { AnnouncementPayload, ListingPayload, ReviewPayload } from './types.ts';
+import type {
+  AnnouncementPayload,
+  ChangeRequestPayload,
+  ListingPayload,
+  ReviewPayload,
+} from './types.ts';
 
 const MAX_RATING = 5;
 
@@ -107,6 +112,24 @@ export function announcementEmbed(announcement: AnnouncementPayload): EmbedBuild
     .setColor(0x6b46b8)
     .setFooter({ text: `Posted by ${announcement.author}` })
     .setTimestamp(new Date());
+}
+
+/** DM'd to admins when a team proposes an edit to its listing. */
+export function changeRequestDm(request: ChangeRequestPayload): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setTitle(`Proposed change — ${request.listingName}`)
+    .setURL(request.url)
+    .setDescription(
+      request.fields.length
+        ? `**${request.author}** wants to change: ${request.fields.join(', ')}`
+        : `**${request.author}** sent a proposal.`
+    )
+    .setColor(0xffaa00)
+    .setFooter({ text: 'Review it in Admin → Teams' })
+    .setTimestamp(new Date());
+
+  if (request.note) embed.addFields({ name: 'Their note', value: request.note.slice(0, 1024) });
+  return embed;
 }
 
 export function passwordResetDm(code: string, siteUsername: string): EmbedBuilder {

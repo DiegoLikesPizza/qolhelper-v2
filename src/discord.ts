@@ -10,6 +10,7 @@ import {
 import { config, isCategoryKey } from './config.ts';
 import {
   announcementEmbed,
+  changeRequestDm,
   listingEmbed,
   passwordResetDm,
   reviewEmbed,
@@ -24,7 +25,12 @@ import {
   saveListingPost,
   saveReviewPost,
 } from './store.ts';
-import type { AnnouncementPayload, ListingPayload, ReviewPayload } from './types.ts';
+import type {
+  AnnouncementPayload,
+  ChangeRequestPayload,
+  ListingPayload,
+  ReviewPayload,
+} from './types.ts';
 
 // GuildMembers is a *privileged* intent and must be enabled in the Developer
 // Portal. Without it, looking a member up by username silently finds nobody,
@@ -341,6 +347,38 @@ export async function publishAnnouncement(announcement: AnnouncementPayload): Pr
     console.error(
       `[qolhelper] announcement ${announcement.id} failed: ${describeError(error)}`
     );
+  }
+}
+
+/**
+ * DMs the admins that a team has proposed an edit.
+ *
+ * The recipients come from the site, which is the side that knows who its
+ * admins are and which of them linked a Discord account — the bot deliberately
+ * has no notion of site roles.
+ *
+ * Every send is independent: one admin with DMs closed must not stop the others
+ * from hearing about it. Failures are logged and swallowed, because the proposal
+ * is already sitting in the queue either way and the badge on the Teams tab is
+ * the durable signal. This is only the nudge.
+ */
+export async function dmChangeRequest(request: ChangeRequestPayload): Promise<void> {
+  if (request.recipients.length === 0) {
+    console.warn('[qolhelper] change request: no linked admin to DM');
+    return;
+  }
+
+  const embed = changeRequestDm(request);
+
+  for (const discordId of request.recipients) {
+    try {
+      const user = await client.users.fetch(discordId);
+      await user.send({ embeds: [embed] });
+    } catch (error) {
+      console.error(
+        `[qolhelper] change request DM to ${discordId} failed: ${describeError(error)}`
+      );
+    }
   }
 }
 

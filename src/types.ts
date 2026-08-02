@@ -39,6 +39,19 @@ export type AnnouncementPayload = {
   url: string;
 };
 
+export type ChangeRequestPayload = {
+  listingName: string;
+  /** Site username of the team member who proposed it. */
+  author: string;
+  /** Human-readable "Name, Description, Primary link" — what actually differs. */
+  fields: string[];
+  note: string | null;
+  /** Where to go and decide: the admin queue. */
+  url: string;
+  /** Discord ids to DM. Resolved by the site, which knows who its admins are. */
+  recipients: string[];
+};
+
 export type ListingEvent = {
   action: 'created' | 'updated' | 'deleted';
   listing: ListingPayload;
@@ -63,6 +76,18 @@ export function isAnnouncementPayload(value: unknown): value is AnnouncementPayl
     typeof v.listingId === 'string' &&
     typeof v.body === 'string' &&
     typeof v.author === 'string'
+  );
+}
+
+export function isChangeRequestPayload(value: unknown): value is ChangeRequestPayload {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.listingName === 'string' &&
+    typeof v.author === 'string' &&
+    typeof v.url === 'string' &&
+    Array.isArray(v.recipients) &&
+    v.recipients.every((r) => typeof r === 'string')
   );
 }
 
