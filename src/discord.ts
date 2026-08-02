@@ -29,6 +29,18 @@ export const client = new Client({
 
 const THREAD_NAME_LIMIT = 100;
 
+/**
+ * A log-safe one-liner for a thrown value.
+ *
+ * Discord's own errors carry a numeric code that says far more than the message
+ * (50001 is a permissions problem, 50007 a privacy setting), so it is kept.
+ */
+function describeError(error: unknown): string {
+  if (error instanceof DiscordAPIError) return `DiscordAPIError[${error.code}] ${error.message}`;
+  if (error instanceof Error) return `${error.name}: ${error.message}`;
+  return String(error);
+}
+
 function threadName(listing: ListingPayload): string {
   const name = listing.isTrusted ? listing.name : `${listing.name} (unverified)`;
   return name.length > THREAD_NAME_LIMIT ? `${name.slice(0, THREAD_NAME_LIMIT - 1)}…` : name;
@@ -302,33 +314,62 @@ export async function sendVerificationCode(
   // Tolerate a pasted "@name" or legacy "name#1234".
   const wanted = discordUsername.trim().replace(/^@/, '').split('#')[0]!.toLowerCase();
 
+  // Every failure below is logged. Without this the bot was silent on the one
+  // flow users actually get stuck in, and "it did not work" was unfalsifiable.
+  // The code itself is never logged — it is a credential.
+  const fail = (result: Extract<LinkResult, { ok: false }>, detail?: string): LinkResult => {
+    console.warn(
+      `[qolhelper] link failed: ${result.reason} — site="${siteUsername}" wanted="${wanted}"` +
+        (detail ? ` ${detail}` : '')
+    );
+    return result;
+  };
+
   let matches: GuildMember[] = [];
+  // Kept for the log line: knowing what the search *did* return is what
+  // separates "not in the server" from "typed their display name".
+  let candidates: string[] = [];
   try {
     const guild = await client.guilds.fetch(config.guildId);
     const found = await guild.members.fetch({ query: wanted, limit: 10 });
+    candidates = [...found.values()].map((m) => m.user.username);
     matches = [...found.values()].filter((m) => m.user.username.toLowerCase() === wanted);
-  } catch {
-    return {
-      ok: false,
-      reason: 'failed',
-      message: 'Could not search the Discord server. Try again in a moment.',
-    };
+  } catch (error) {
+    return fail(
+      {
+        ok: false,
+        reason: 'failed',
+        message: 'Could not search the Discord server. Try again in a moment.',
+      },
+      `search threw: ${describeError(error)}`
+    );
   }
 
   if (matches.length === 0) {
-    return {
-      ok: false,
-      reason: 'not_found',
-      message:
-        'No member with that username is in the Discord server. Join the server first, then try again.',
-    };
+    return fail(
+      {
+        ok: false,
+        reason: 'not_found',
+        message:
+          'No member with that username is in the Discord server. Join the server first, then try again.',
+      },
+      // A non-empty candidate list here means Discord *did* find someone — the
+      // query matched a display name or nickname, but the handle differs. That
+      // is a different problem from not being in the server at all.
+      candidates.length
+        ? `search returned ${candidates.length} near-miss(es): ${candidates.join(', ')} — handle mismatch, not absence`
+        : 'search returned nothing'
+    );
   }
   if (matches.length > 1) {
-    return {
-      ok: false,
-      reason: 'ambiguous',
-      message: 'More than one member matches that username. Contact an admin to link manually.',
-    };
+    return fail(
+      {
+        ok: false,
+        reason: 'ambiguous',
+        message: 'More than one member matches that username. Contact an admin to link manually.',
+      },
+      `${matches.length} exact handle matches: ${matches.map((m) => m.id).join(', ')}`
+    );
   }
 
   const member = matches[0]!;
@@ -337,15 +378,23 @@ export async function sendVerificationCode(
     await member.send({ embeds: [verificationDm(code, siteUsername)] });
   } catch (error) {
     if (error instanceof DiscordAPIError && error.code === 50007) {
-      return {
-        ok: false,
-        reason: 'dms_closed',
-        message:
-          'Could not DM you — enable "Direct Messages" from server members in your Discord privacy settings, then try again.',
-      };
+      return fail(
+        {
+          ok: false,
+          reason: 'dms_closed',
+          message:
+            'Could not DM you — enable "Direct Messages" from server members in your Discord privacy settings, then try again.',
+        },
+        `member=${member.id}`
+      );
     }
-    return { ok: false, reason: 'failed', message: 'Could not send the DM. Try again.' };
+    return fail(
+      { ok: false, reason: 'failed', message: 'Could not send the DM. Try again.' },
+      `member=${member.id} dm threw: ${describeError(error)}`
+    );
   }
+
+  console.log(`[qolhelper] link code sent: site="${siteUsername}" discord=${member.id}`);
 
   return { ok: true, discordId: member.id, discordTag: member.user.username };
 }
